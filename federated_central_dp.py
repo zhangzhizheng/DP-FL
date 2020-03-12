@@ -147,7 +147,7 @@ if __name__ == '__main__':
         torch.nn.utils.clip_grad_norm_(global_model.parameters(), sensitivity)
         for param in global_model.parameters():
             noise = gaussian_noise(sensitivity, args.sigma)
-            # param.data.add_(noise)
+            param.data.add_(noise)
         priv_accountant.accumulate_privacy_spending(args.sigma, m)
 
         print("-----------", priv_accountant.get_privacy_spent(target_deltas=[args.delta]))
