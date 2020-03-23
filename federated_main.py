@@ -19,6 +19,10 @@ from models import MLP, CNNMnist, CNNFashion_Mnist, CNNCifar
 from utils import get_dataset, average_weights, exp_details
 
 if __name__ == '__main__':
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(0)
+
     start_time = time.time()
 
     # define paths
@@ -27,15 +31,16 @@ if __name__ == '__main__':
 
     args = args_parser()
     args.gpu = 0
-    args.epochs = 10
+    args.epochs = 30
     args.num_users = 100
     args.local_ep = 5
+    # args.model = 'mlp'
     # args.iid = False
     # args.unequal = True
     args.model = 'cnn'
-    args.delta = 10 ** (-5)
-    args.dataset = 'cifar'
+    # args.dataset = 'cifar'
     args.frac = 0.3
+    args.lr = 0.01
 
     exp_details(args)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -88,7 +93,7 @@ if __name__ == '__main__':
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
 
         for idx in idxs_users:
-            print("user id ", idx)
+            # print("user id ", idx)
             local_model = LocalUpdate(args=args, dataset=train_dataset,
                                       idxs=user_groups[idx], logger=logger)
             w, loss = local_model.update_weights(

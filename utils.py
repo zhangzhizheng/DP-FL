@@ -5,9 +5,7 @@
 import copy
 import torch
 from torchvision import datasets, transforms
-from sampling import mnist_iid, mnist_noniid, mnist_noniid_unequal, custom_mnist_iid
-from sampling import cifar_iid, cifar_noniid, custom_cifar_iid
-
+from sampling import *
 
 def get_dataset(args):
     """ Returns train and test datasets and a user group which is a dict where
@@ -22,15 +20,15 @@ def get_dataset(args):
              transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
         train_dataset = datasets.CIFAR10(data_dir, train=True, download=True,
-                                       transform=apply_transform)
+                                         transform=apply_transform)
 
         test_dataset = datasets.CIFAR10(data_dir, train=False, download=True,
-                                      transform=apply_transform)
+                                        transform=apply_transform)
 
         # sample training data amongst users
         if args.iid:
             # Sample IID user data from Mnist
-            user_groups = custom_cifar_iid(train_dataset, args.num_users)
+            user_groups = cifar_iid(train_dataset, args.num_users)
         else:
             # Sample Non-IID user data from Mnist
             if args.unequal:
@@ -40,11 +38,9 @@ def get_dataset(args):
                 # Chose euqal splits for every user
                 user_groups = cifar_noniid(train_dataset, args.num_users)
 
-    elif args.dataset == 'mnist' or 'fmnist':
-        if args.dataset == 'mnist':
-            data_dir = './data/mnist/'
-        else:
-            data_dir = './data/fmnist/'
+    elif args.dataset == 'mnist':
+
+        data_dir = './data/mnist/'
 
         apply_transform = transforms.Compose([
             transforms.ToTensor(),
@@ -68,6 +64,18 @@ def get_dataset(args):
             else:
                 # Chose euqal splits for every user
                 user_groups = mnist_noniid(train_dataset, args.num_users)
+
+    elif args.dataset == 'fmnist':
+        data_dir = './data/fmnist/'
+        transform = transforms.Compose([transforms.ToTensor(),
+                                        transforms.Normalize((0.5,), (0.5,))])
+        train_dataset = datasets.FashionMNIST(data_dir, download=True, train=True, transform=transform)
+
+        test_dataset = datasets.FashionMNIST(data_dir, download=True, train=False, transform=transform)
+
+        # sample training data amongst users
+        if args.iid:
+            user_groups = fmnist_iid(train_dataset, args.num_users)
 
     return train_dataset, test_dataset, user_groups
 

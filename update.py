@@ -6,7 +6,8 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from torchdp import PrivacyEngine
-
+import copy
+import statistics
 
 class DatasetSplit(Dataset):
     """An abstract Dataset class wrapped around Pytorch Dataset class.
@@ -56,6 +57,49 @@ class LocalUpdate(object):
                                 shuffle=False)
         return trainloader, validloader, testloader
 
+    def central_update_weights(self, model, global_round, args):
+        # Set mode to train model
+        model.train()
+        epoch_loss = []
+
+        first_model = copy.deepcopy(model)
+
+        # Set optimizer for the local updates
+        if self.args.optimizer == 'sgd':
+            optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr,
+                                        momentum=0.5)
+        elif self.args.optimizer == 'adam':
+            optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr,
+                                         weight_decay=1e-4)
+
+        for iter in range(self.args.local_ep):
+            batch_loss = []
+            for batch_idx, (images, labels) in enumerate(self.trainloader):
+                images, labels = images.to(self.device), labels.to(self.device)
+
+                model.zero_grad()
+                log_probs = model(images)
+                loss = self.criterion(log_probs, labels)
+                loss.backward()
+                optimizer.step()
+
+                # if self.args.verbose and (batch_idx % 10 == 0):
+                #     print('| Global Round : {} | Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                #         global_round, iter, batch_idx * len(images),
+                #         len(self.trainloader.dataset),
+                #                             100. * batch_idx / len(self.trainloader), loss.item()))
+                self.logger.add_scalar('loss', loss.item())
+                batch_loss.append(loss.item())
+            epoch_loss.append(sum(batch_loss) / len(batch_loss))
+
+        l2norm = compute_local_model_update(first_model, model)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), l2norm)
+        optimizer.step()
+        return model.state_dict(), sum(epoch_loss) / len(epoch_loss), l2norm
+
+
+
+
     def update_weights(self, model, global_round, args):
         # Set mode to train model
         model.train()
@@ -63,10 +107,8 @@ class LocalUpdate(object):
 
         # Set optimizer for the local updates
         if self.args.optimizer == 'sgd':
-
             optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr,
                                         momentum=0.5)
-
         elif self.args.optimizer == 'adam':
             optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr,
                                          weight_decay=1e-4)
@@ -107,7 +149,7 @@ class LocalUpdate(object):
                 model,
                 self.trainloader,
                 alphas=[1 + x / 10.0 for x in range(1, 100)] + list(range(12, 64)),
-                noise_multiplier=1.1,
+                noise_multiplier=0.65,
                 max_grad_norm=1.0,
             )
 
@@ -130,11 +172,11 @@ class LocalUpdate(object):
                 loss.backward()
                 optimizer.step()
 
-                if self.args.verbose and (batch_idx % 10 == 0):
-                    print('| Global Round : {} | Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        global_round, iter, batch_idx * len(images),
-                        len(self.trainloader.dataset),
-                                            100. * batch_idx / len(self.trainloader), loss.item()))
+                # if self.args.verbose and (batch_idx % 10 == 0):
+                #     print('| Global Round : {} | Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                #         global_round, iter, batch_idx * len(images),
+                #         len(self.trainloader.dataset),
+                #                             100. * batch_idx / len(self.trainloader), loss.item()))
                 self.logger.add_scalar('loss', loss.item())
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
@@ -145,8 +187,8 @@ class LocalUpdate(object):
             print(
                 f"(Ɛ = {epsilon}, 𝛿 = {args.delta}) for α = {best_alpha}"
             )
-            if epsilon > args.epsilon:
-                break
+            # if epsilon > args.epsilon:
+            #     break
 
         return model.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
@@ -203,3 +245,16 @@ def test_inference(args, model, test_dataset):
 
     accuracy = correct / total
     return accuracy, loss
+
+
+
+def compute_local_model_update(first_model, second_model):
+    if len(list(first_model.parameters())) != len(list(second_model.parameters())):
+        raise AssertionError("Two models have different length in number of clients")
+
+    norm_values = []
+
+    for i in range(len(list(first_model.parameters()))):
+        norm_values.append(torch.norm(list(first_model.parameters())[0] -  list(second_model.parameters())[0]))
+
+    return statistics.median(norm_values)

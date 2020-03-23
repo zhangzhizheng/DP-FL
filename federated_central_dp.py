@@ -23,9 +23,10 @@ from utils import get_dataset, average_weights, exp_details
 
 from differential_privacy.privacy_accountant.pytorch import accountant
 
+torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
 def gaussian_noise(bound, sigma):
-    n = tdist.Normal(0, bound * sigma)
+    n = tdist.Normal(0, sigma * sigma)
     return n.sample()
 
 
@@ -51,17 +52,19 @@ if __name__ == '__main__':
     args = args_parser()
     args.gpu = 0
     args.epochs = 20
-    args.num_users = 1000
-    args.local_ep = 10
+    args.num_users = 100
+    args.local_ep = 5
     # args.iid = False
     # args.unequal = True
     args.model = 'cnn'
-    args.epsilon = 3
+    args.epsilon = 10
+    args.max_epsilon = 8
     args.delta = 10 ** (-5)
-    args.sigma = np.sqrt(2.0 * np.log(1.25 / args.delta)) / args.epsilon
-    # args.dataset = "cifar"
-    args.frac = 0.1
-    args.lr = 0.001
+    args.sigma = 0.8
+    args.noise_scale = 3
+    args.dataset = "cifar"
+    args.frac = 0.3
+    args.lr = 0.01
 
     exp_details(args)
 
@@ -121,38 +124,34 @@ if __name__ == '__main__':
         global_model.train()
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
+        l2norms = []
 
         for idx in idxs_users:
             print("user id ", idx)
             local_model = LocalUpdate(args=args, dataset=train_dataset,
                                       idxs=user_groups[idx], logger=logger)
-            w, loss = local_model.update_weights(
-                copy.deepcopy(global_model), epoch, args)
+            w, loss, l2norm = local_model.central_update_weights(copy.deepcopy(global_model), epoch, args)
+            l2norms.append(l2norm)
             local_weights.append(copy.deepcopy(w))
             local_losses.append(copy.deepcopy(loss))
 
+        sensitivity = statistics.median(l2norms).item()
+        args.sigma = (sensitivity * args.noise_scale) / (args.frac * args.num_users)
+
         # update global weights
         global_weights = average_weights(local_weights)
-
-        l2norms = []
-        for local_weight in local_weights:
-            l2norms.append(compute_local_model_update(list(global_weights.items()), list(local_weight.items())))
-
-        sensitivity = statistics.median(l2norms).item()
 
         # update global weights
         global_model.load_state_dict(global_weights)
 
         # add noise
-        torch.nn.utils.clip_grad_norm_(global_model.parameters(), sensitivity)
-        for param in global_model.parameters():
-            noise = gaussian_noise(sensitivity, args.sigma)
-            param.data.add_(noise)
-        priv_accountant.accumulate_privacy_spending(args.sigma, m)
+        global_model.add_noise(args.sigma, sensitivity)
+
+        priv_accountant.accumulate_privacy_spending(args.noise_scale, m)
 
         print("-----------", priv_accountant.get_privacy_spent(target_deltas=[args.delta]))
-         if priv_accountant.get_privacy_spent(target_deltas=[args.delta])[0].spent_eps > args.epsilon:
-             break
+        # if priv_accountant.get_privacy_spent(target_deltas=[args.delta])[0].spent_delta > args.max_epsilon:
+        #     break
 
         loss_avg = sum(local_losses) / len(local_losses)
         print('Round {:3d}, Average loss {:.3f}'.format(epoch, loss_avg))
@@ -189,3 +188,18 @@ if __name__ == '__main__':
 # def gradient_clip(param):
 #     """Clip gradient to ensure ||param.grad||2 < bound"""
 #     torch.nn.utils.clip_grad_norm([param], bound)
+
+
+
+# update global weights
+#         global_weights = average_weights(local_weights)
+#
+#         l2norms = []
+#         for local_weight in local_weights:
+#             l2norms.append(compute_local_model_update(list(global_weights.items()), list(local_weight.items())))
+
+
+# add noise
+# for param in global_model.parameters():
+#     noise = gaussian_noise(sensitivity, args.sigma)
+#     param.data.add_(noise)

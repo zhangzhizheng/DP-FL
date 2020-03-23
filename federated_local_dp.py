@@ -37,17 +37,17 @@ if __name__ == '__main__':
 
     args = args_parser()
     args.gpu = 0
-    args.epochs = 20
-    args.num_users = 1000
-    args.local_ep = 4
+    args.epochs = 30
+    args.num_users = 100
+    args.local_ep = 5
     # args.iid = False
     # args.unequal = True
     args.model = 'cnn'
-    args.epsilon = 2
+    args.epsilon = 6
     args.delta = 10 ** (-5)
     args.sigma = np.sqrt(2 * np.log(1.25 / args.delta)) / args.epsilon
     # args.dataset = 'cifar'
-    args.frac = 0.3
+    args.frac = 0.1
     args.lr = 0.01
 
     exp_details(args)
